@@ -1,5 +1,6 @@
-from config.bucket import configure_bucket_security
 from botocore.exceptions import ClientError
+
+from config.bucket import configure_bucket_security
 
 
 def prepare_backend(s3_client, PROJECT_NAME, REGION):

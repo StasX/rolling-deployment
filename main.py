@@ -1,11 +1,12 @@
-import os
-import boto3
 import argparse
-from utils.ansible import deploy_services, load_deployment_config
-from utils.backend import prepare_backend
-from utils.terraform import run_terraform, get_hosts
+import os
 from pathlib import Path
 
+import boto3
+
+from utils.ansible import deploy_services, load_deployment_config
+from utils.backend import prepare_backend
+from utils.terraform import get_hosts, run_terraform
 
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")

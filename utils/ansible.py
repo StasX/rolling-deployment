@@ -5,7 +5,6 @@ import subprocess  # nosec B404
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-
 DEPLOYMENT_INPUT_TYPES = {
     "app_key": str,
     "app_repo_version": str,
@@ -45,16 +44,16 @@ def load_deployment_config(config_path, base_dir, project_name):
             f"Invalid deployment JSON at line {error.lineno}, column {error.colno}."
         ) from None
     if not isinstance(config, dict):
-        raise ValueError("Deployment configuration must be a JSON object.")
+        raise TypeError("Deployment configuration must be a JSON object.")
 
     invalid = []
     for name, kind in DEPLOYMENT_INPUT_TYPES.items():
         value = config.get(name)
-        if type(value) is not kind:
-            invalid.append(name)
-        elif kind is str and (not value.strip() or "\n" in value or "\r" in value):
-            invalid.append(name)
-        elif kind is int and value < 0:
+        if (
+            type(value) is not kind
+            or (kind is str and (not value.strip() or "\n" in value or "\r" in value))
+            or (kind is int and value < 0)
+        ):
             invalid.append(name)
     if "database_allow_format" in config and type(config["database_allow_format"]) is not bool:
         invalid.append("database_allow_format")

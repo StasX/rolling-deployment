@@ -1,5 +1,3 @@
-__all__ = ["ansible", "terraform", "backend"]
+__all__ = ["ansible", "backend", "terraform"]
 
-from . import ansible
-from . import terraform
-from . import backend
+from . import ansible, backend, terraform
