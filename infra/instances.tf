@@ -28,8 +28,8 @@ resource "aws_key_pair" "ec2_key" {
   }
 }
 
-#checkov:skip=CKV_AWS_126:Using basic EC2 monitoring and Prometheus
 resource "aws_instance" "app" {
+  # checkov:skip=CKV_AWS_126:Use free basic EC2 metrics and self-hosted Prometheus.
   monitoring    = false
   ebs_optimized = true
   for_each      = local.app_instances
@@ -71,7 +71,10 @@ resource "aws_instance" "app" {
 
 
 resource "aws_instance" "database" {
-  for_each = local.database_instances
+  # checkov:skip=CKV_AWS_126:Use free basic EC2 metrics and self-hosted Prometheus.
+  for_each      = local.database_instances
+  monitoring    = false
+  ebs_optimized = true
 
   ami                         = var.AMI_ID != "" ? var.AMI_ID : data.aws_ami.ami.id
   instance_type               = var.instance_type
@@ -110,7 +113,10 @@ resource "aws_instance" "database" {
 
 
 resource "aws_instance" "redis" {
-  for_each = local.redis_instances
+  # checkov:skip=CKV_AWS_126:Use free basic EC2 metrics and self-hosted Prometheus.
+  for_each      = local.redis_instances
+  monitoring    = false
+  ebs_optimized = true
 
   ami                         = var.AMI_ID != "" ? var.AMI_ID : data.aws_ami.ami.id
   instance_type               = var.instance_type
@@ -149,6 +155,10 @@ resource "aws_instance" "redis" {
 
 
 resource "aws_instance" "monitoring" {
+  # checkov:skip=CKV_AWS_126:Use free basic EC2 metrics for the monitoring host.
+  monitoring    = false
+  ebs_optimized = true
+
   ami                         = var.AMI_ID != "" ? var.AMI_ID : data.aws_ami.ami.id
   instance_type               = var.instance_type
   subnet_id                   = aws_subnet.monitoring_sn.id

@@ -21,11 +21,11 @@ resource "aws_security_group" "alb_sg" {
   }
 
   egress {
-    description = "Allow outbound traffic"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    description = "HTTP to application target subnets"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = [for subnet in aws_subnet.public_sn : subnet.cidr_block]
   }
 
   lifecycle {

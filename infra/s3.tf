@@ -64,6 +64,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "uploads" {
     noncurrent_version_expiration {
       noncurrent_days = 90
     }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
   }
 }
 
@@ -135,6 +139,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "db_backups" {
 
     noncurrent_version_expiration {
       noncurrent_days = 90
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
     }
   }
 }
