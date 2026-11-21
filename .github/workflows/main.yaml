@@ -152,13 +152,19 @@ jobs:
         shell: bash
         run: bandit -r main.py utils/ config/ 2>&1 | tee bandit.txt
 
-      - name: Upload Python analysis reports
+      - name: Upload Ruff report
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: python-analysis-results
-          path: |
-            ruff.txt
-            bandit.txt
+          name: ruff-results
+          path: ruff.txt
           if-no-files-found: warn
+
+      - name: Upload Bandit report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: bandit-results
+          path: bandit.txt
+          if-no-files-found: error
 
