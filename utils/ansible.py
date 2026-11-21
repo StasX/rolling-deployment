@@ -1,7 +1,7 @@
-import os
 import json
+import os
 import shutil
-import subprocess
+import subprocess  # nosec B404
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -25,6 +25,16 @@ DEPLOYMENT_INPUT_TYPES = {
     "redis_sentinel_uid": int,
     "redis_sentinel_gid": int,
 }
+
+
+def find_ansible_playbook():
+    executable = shutil.which("ansible-playbook")
+    if executable is None:
+        raise RuntimeError(
+            "ansible-playbook is unavailable. "
+            "Run this orchestration in Linux or WSL with Ansible installed."
+        )
+    return str(Path(executable).absolute())
 
 
 def load_deployment_config(config_path, base_dir, project_name):
@@ -60,11 +70,7 @@ def load_deployment_config(config_path, base_dir, project_name):
     ssh_key = base_dir / "keys" / f"{project_name}-key.pem"
     if not ssh_key.is_file():
         raise FileNotFoundError(f"SSH key not found: {ssh_key}")
-    if not shutil.which("ansible-playbook"):
-        raise RuntimeError(
-            "ansible-playbook is unavailable. "
-            "Run this orchestration in Linux or WSL with Ansible installed."
-        )
+    find_ansible_playbook()
     return config
 
 
@@ -105,7 +111,6 @@ def build_inventory(hosts, project_name, region, initialize_database):
         "db_host": database_ips[database_seed],
         "db_database": "{{ database_name | default(project_name | lower) }}",
         "db_username": "{{ database_user | default('app') }}",
-        "db_password": "{{ database_password }}",
         "redis_host": redis_primary_ip,
         "aws_region": region,
         "aws_uploads_bucket": hosts["uploads_bucket"],
@@ -133,6 +138,7 @@ def build_inventory(hosts, project_name, region, initialize_database):
 
 
 def deploy_services(hosts, deployment_config, initialize_database, BASE_DIR, PROJECT_NAME, REGION):
+    ansible_playbook = find_ansible_playbook()
     ansible_dir = BASE_DIR / "ansible"
     ssh_key = BASE_DIR / "keys" / f"{PROJECT_NAME}-key.pem"
     inventory, database_seed = build_inventory(hosts, PROJECT_NAME, REGION, initialize_database)
@@ -159,9 +165,10 @@ def deploy_services(hosts, deployment_config, initialize_database, BASE_DIR, PRO
         private_key.chmod(0o600)
         for playbook, limit, variables in stages:
             print(f"Running {playbook}.yml on {limit}...", flush=True)
-            subprocess.run(
+            # Run the locally selected executable and playbook without a shell.
+            subprocess.run(  # nosec B603
                 [
-                    "ansible-playbook", "-i", str(inventory_path),
+                    ansible_playbook, "-i", str(inventory_path),
                     "--private-key", str(private_key),
                     "--limit", limit,
                     "--extra-vars", f"@{config_path}",

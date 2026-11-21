@@ -1,11 +1,19 @@
 import json
-import subprocess
+import shutil
+import subprocess  # nosec B404
+from pathlib import Path
 
 
 def run_terraform(*arguments, capture_output=False, INFRA_DIR):
-    return subprocess.run(
+    executable = shutil.which("terraform")
+    if executable is None:
+        raise FileNotFoundError("terraform is unavailable on PATH.")
+    terraform = str(Path(executable).absolute())
+
+    # The executable is resolved locally and arguments are passed without a shell.
+    return subprocess.run(  # nosec B603
         [
-            "terraform",
+            terraform,
             f"-chdir={INFRA_DIR}",
             *arguments,
         ],
