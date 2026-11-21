@@ -1,3 +1,7 @@
+locals {
+  ec2_web_egress_ports = toset(["80", "443"])
+}
+
 # ALB Security Group
 resource "aws_security_group" "alb_sg" {
   name        = "${var.PROJECT_NAME}-alb-sg"
@@ -60,11 +64,22 @@ resource "aws_security_group" "app_sg" {
   }
 
   egress {
-    description = "Allow outbound traffic"
+    description = "Private service traffic within the VPC"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [aws_vpc.vpc.cidr_block]
+  }
+
+  dynamic "egress" {
+    for_each = local.ec2_web_egress_ports
+    content {
+      description = "Outbound web traffic on TCP ${egress.value}"
+      from_port   = tonumber(egress.value)
+      to_port     = tonumber(egress.value)
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
   }
 
   lifecycle {
@@ -140,11 +155,22 @@ resource "aws_security_group" "galera_sg" {
   }
 
   egress {
-    description = "Allow outbound traffic"
+    description = "Private service traffic within the VPC"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [aws_vpc.vpc.cidr_block]
+  }
+
+  dynamic "egress" {
+    for_each = local.ec2_web_egress_ports
+    content {
+      description = "Outbound web traffic on TCP ${egress.value}"
+      from_port   = tonumber(egress.value)
+      to_port     = tonumber(egress.value)
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
   }
 }
 
@@ -196,11 +222,22 @@ resource "aws_security_group" "redis_sg" {
   }
 
   egress {
-    description = "Allow outbound traffic"
+    description = "Private service traffic within the VPC"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [aws_vpc.vpc.cidr_block]
+  }
+
+  dynamic "egress" {
+    for_each = local.ec2_web_egress_ports
+    content {
+      description = "Outbound web traffic on TCP ${egress.value}"
+      from_port   = tonumber(egress.value)
+      to_port     = tonumber(egress.value)
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
   }
 
   lifecycle {
@@ -228,11 +265,22 @@ resource "aws_security_group" "monitoring_sg" {
   }
 
   egress {
-    description = "Allow outbound traffic"
+    description = "Private service traffic within the VPC"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [aws_vpc.vpc.cidr_block]
+  }
+
+  dynamic "egress" {
+    for_each = local.ec2_web_egress_ports
+    content {
+      description = "Outbound web traffic on TCP ${egress.value}"
+      from_port   = tonumber(egress.value)
+      to_port     = tonumber(egress.value)
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
   }
 
   lifecycle {
