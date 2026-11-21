@@ -29,6 +29,7 @@ resource "aws_key_pair" "ec2_key" {
 }
 
 resource "aws_instance" "app" {
+  # checkov:skip=CKV_AWS_88:Ansible currently uses public SSH restricted to the administrator CIDR.
   # checkov:skip=CKV_AWS_126:Use free basic EC2 metrics and self-hosted Prometheus.
   monitoring    = false
   ebs_optimized = true
@@ -71,6 +72,7 @@ resource "aws_instance" "app" {
 
 
 resource "aws_instance" "database" {
+  # checkov:skip=CKV_AWS_88:Ansible currently uses public SSH restricted to the administrator CIDR.
   # checkov:skip=CKV_AWS_126:Use free basic EC2 metrics and self-hosted Prometheus.
   for_each      = local.database_instances
   monitoring    = false
@@ -113,6 +115,7 @@ resource "aws_instance" "database" {
 
 
 resource "aws_instance" "redis" {
+  # checkov:skip=CKV_AWS_88:Ansible currently uses public SSH restricted to the administrator CIDR.
   # checkov:skip=CKV_AWS_126:Use free basic EC2 metrics and self-hosted Prometheus.
   for_each      = local.redis_instances
   monitoring    = false
@@ -155,6 +158,7 @@ resource "aws_instance" "redis" {
 
 
 resource "aws_instance" "monitoring" {
+  # checkov:skip=CKV_AWS_88:Ansible currently uses public SSH restricted to the administrator CIDR.
   # checkov:skip=CKV_AWS_126:Use free basic EC2 metrics for the monitoring host.
   monitoring    = false
   ebs_optimized = true

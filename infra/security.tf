@@ -4,16 +4,20 @@ locals {
 
 # ALB Security Group
 resource "aws_security_group" "alb_sg" {
+  # checkov:skip=CKV_AWS_260:Public port 80 is used exclusively to redirect to the certificate-backed HTTPS listener.
   name        = "${var.PROJECT_NAME}-alb-sg"
   description = "Security group for the application load balancer"
   vpc_id      = aws_vpc.vpc.id
 
-  ingress {
-    description = "HTTP from Internet"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+  dynamic "ingress" {
+    for_each = var.ACM_CERTIFICATE_ARN != null ? [80] : []
+    content {
+      description = "HTTP redirect to HTTPS"
+      from_port   = ingress.value
+      to_port     = ingress.value
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
   }
 
   ingress {

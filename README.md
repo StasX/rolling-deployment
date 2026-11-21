@@ -64,7 +64,8 @@ An asynchronous MariaDB replica in AZ B is a possible future disaster-recovery e
 - Redis uses a persistent host directory on each EC2 root volume; dedicated Redis data volumes are not currently defined.
 - EC2 root volumes are encrypted, and instance metadata requires IMDSv2.
 
-- The current ALB listener serves HTTP. Opening port `443` in its security group does not configure HTTPS; a certificate and HTTPS listener are still required.
+- Set `TF_VAR_ACM_CERTIFICATE_ARN` to enable the public HTTPS listener. With a certificate configured, port 80 redirects to HTTPS.
+- Terraform enables ALB and S3 access logs and sends VPC flow logs and WAF matches to CloudWatch Logs. The WAF managed rules run in count mode so matches can be reviewed before blocking is enabled. WAF and log delivery and storage can incur AWS charges. EC2 continues to use free basic monitoring.
 
 ## Technology stack
 
@@ -121,6 +122,7 @@ Copy-Item example.env .env
 | `REGION` | `us-east-1` | Region used by Boto3 and the Terraform backend |
 | `AWS_DEFAULT_REGION` | `us-east-1` | AWS provider region; keep aligned with `REGION` |
 | `TF_VAR_AVAILABILITY_ZONES` | `'["us-east-1a","us-east-1b"]'` | Two AWS Availability Zone names in subnet order. Application, database, and Redis hosts use the first zone and monitoring uses the second. |
+| `TF_VAR_ACM_CERTIFICATE_ARN` | ACM certificate ARN | Certificate in the ALB region for the public application hostname |
 | `MOST_RECENT` | `true` | Select the newest matching Ubuntu AMI |
 | `AMI_ID` | empty | Optional explicit AMI ID |
 | `USE_DOMAIN` | `false` | Enable the Route 53 application record |

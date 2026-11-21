@@ -1,4 +1,5 @@
 resource "aws_lb" "app_alb" {
+  # checkov:skip=CKV2_AWS_76:Managed WAF rules run in count mode to avoid blocking application traffic.
   name               = "${var.PROJECT_NAME}-alb"
   internal           = false
   load_balancer_type = "application"
@@ -12,6 +13,14 @@ resource "aws_lb" "app_alb" {
   ]
   drop_invalid_header_fields = true
   enable_deletion_protection = true
+
+  access_logs {
+    bucket  = aws_s3_bucket.access_logs.id
+    prefix  = "alb"
+    enabled = true
+  }
+
+  depends_on = [aws_s3_bucket_policy.access_logs, aws_s3_bucket_server_side_encryption_configuration.access_logs]
 
   lifecycle {
     prevent_destroy = true
@@ -58,7 +67,14 @@ resource "aws_lb_target_group_attachment" "app_attachment" {
   port             = 80
 }
 
+moved {
+  from = aws_lb_listener.http
+  to   = aws_lb_listener.http[0]
+}
+
 resource "aws_lb_listener" "http" {
+  count = var.ACM_CERTIFICATE_ARN != null ? 1 : 0
+
   load_balancer_arn = aws_lb.app_alb.arn
   port              = 80
   protocol          = "HTTP"

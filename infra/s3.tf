@@ -3,6 +3,9 @@
 data "aws_caller_identity" "current" {}
 
 resource "aws_s3_bucket" "uploads" {
+  # checkov:skip=CKV_AWS_144:This deployment has no cross-region recovery requirement for uploads.
+  # checkov:skip=CKV_AWS_145:Uploads use SSE-S3 and require no customer-managed key.
+  # checkov:skip=CKV2_AWS_62:The application does not consume S3 events.
   bucket = "${lower(var.PROJECT_NAME)}-uploads-${data.aws_caller_identity.current.account_id}"
 
   force_destroy = false
@@ -74,6 +77,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "uploads" {
 # Backups storage
 
 resource "aws_s3_bucket" "db_backups" {
+  # checkov:skip=CKV_AWS_144:This deployment retains database backups in one region.
+  # checkov:skip=CKV_AWS_145:Database backups use SSE-S3 and require no customer-managed key.
+  # checkov:skip=CKV2_AWS_62:The backup workflow does not consume S3 events.
   bucket        = "${lower(var.PROJECT_NAME)}-db-backups-${data.aws_caller_identity.current.account_id}"
   force_destroy = false
 
