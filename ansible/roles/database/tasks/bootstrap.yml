@@ -41,23 +41,18 @@
           - health=healthy
       register: database_running_seed
       changed_when: false
-      failed_when: false
       retries: "{{ database_health_retries }}"
       delay: "{{ database_health_delay }}"
       until:
         - database_running_seed.rc == 0
         - database_running_seed.stdout | length > 0
-      ignore_errors: true
-
-    - name: Require a healthy seed to continue an interrupted bootstrap
-      ansible.builtin.assert:
-        that:
-          - database_running_seed.rc == 0
-          - database_running_seed.stdout | length > 0
-        fail_msg: "The initialized Galera bootstrap seed is unhealthy. Recover the cluster before retrying."
 
     - name: Leave the running bootstrap container in place until peers join
       ansible.builtin.meta: end_host
+  rescue:
+    - name: Stop deployment until the Galera seed is recovered
+      ansible.builtin.fail:
+        msg: "Could not verify a healthy Galera bootstrap seed. Recover the cluster before retrying."
 
 - name: Skip bootstrap finalization on a normally configured seed
   ansible.builtin.meta: end_host

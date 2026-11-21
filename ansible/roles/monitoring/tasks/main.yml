@@ -11,27 +11,27 @@
     version: "{{ monitoring_repo_version }}"
     update: true
 
-- name: Render configuration for the generated scrape targets
+- name: Create monitoring configuration directory
+  ansible.builtin.file:
+    path: "{{ monitoring_config_dir }}"
+    state: directory
+    mode: "0755"
   when: monitoring_node_exporter_targets | length > 0
-  block:
-    - name: Create monitoring configuration directory
-      ansible.builtin.file:
-        path: "{{ monitoring_config_dir }}"
-        state: directory
-        mode: "0755"
 
-    - name: Render Prometheus configuration
-      ansible.builtin.template:
-        src: prometheus.yml.j2
-        dest: "{{ monitoring_config_dir }}/prometheus.yml"
-        mode: "0644"
-      register: monitoring_prometheus_config
+- name: Render Prometheus configuration
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: "{{ monitoring_config_dir }}/prometheus.yml"
+    mode: "0644"
+  register: monitoring_prometheus_config
+  when: monitoring_node_exporter_targets | length > 0
 
-    - name: Render Prometheus Compose override
-      ansible.builtin.template:
-        src: prometheus-compose.yml.j2
-        dest: "{{ monitoring_config_dir }}/compose.yml"
-        mode: "0644"
+- name: Render Prometheus Compose override
+  ansible.builtin.template:
+    src: prometheus-compose.yml.j2
+    dest: "{{ monitoring_config_dir }}/compose.yml"
+    mode: "0644"
+  when: monitoring_node_exporter_targets | length > 0
 
 - name: Start monitoring containers
   community.docker.docker_compose_v2:
