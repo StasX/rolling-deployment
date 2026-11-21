@@ -1,7 +1,7 @@
 services:
   database:
     image: {{ database_image | to_json }}
-    restart: unless-stopped
+    restart: {{ (database_bootstrap | bool) | ternary('"no"', 'unless-stopped') }}
     network_mode: host
 
     env_file:

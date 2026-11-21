@@ -12,3 +12,5 @@ monitoring_pull_images: true
 monitoring_remove_orphans: true
 
 monitoring_node_exporter_targets: []
+monitoring_config_dir: "/etc/rolling-deployment/monitoring"
+monitoring_prometheus_service: "prometheus"

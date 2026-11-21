@@ -103,3 +103,13 @@ output "redis_private_ips" {
     name => instance.private_ip
   }
 }
+
+output "database_volume_ids" {
+  description = "EBS volume ID for each database host"
+  value       = { for name, volume in aws_ebs_volume.database : name => volume.id }
+}
+
+output "uploads_bucket" {
+  description = "Uploads bucket used by the application"
+  value       = aws_s3_bucket.uploads.bucket
+}

@@ -43,6 +43,9 @@ def get_hosts(INFRA_DIR):
             "public_ip": output_value("monitoring_public_ip"),
             "private_ip": output_value("monitoring_private_ip"),
         },
+        "database_volume_ids": output_value("database_volume_ids"),
+        "app_url": output_value("app_url"),
+        "uploads_bucket": output_value("uploads_bucket"),
     }
 
     for group in ("application", "database", "redis"):
@@ -57,5 +60,12 @@ def get_hosts(INFRA_DIR):
 
     if not all(hosts["monitoring"].values()):
         raise ValueError("Missing monitoring IP addresses.")
+
+    volume_ids = hosts["database_volume_ids"]
+    if (
+        volume_ids.keys() != hosts["database"]["public_ips"].keys()
+        or not all(volume_ids.values())
+    ):
+        raise ValueError("Incomplete Terraform database volume outputs.")
 
     return hosts

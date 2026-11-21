@@ -1,3 +1,9 @@
+- name: Install Git
+  ansible.builtin.apt:
+    name: git
+    state: present
+    update_cache: true
+
 - name: Clone monitoring repository
   ansible.builtin.git:
     repo: "{{ monitoring_repo_url }}"
@@ -5,12 +11,52 @@
     version: "{{ monitoring_repo_version }}"
     update: true
 
+- name: Render configuration for the generated scrape targets
+  when: monitoring_node_exporter_targets | length > 0
+  block:
+    - name: Create monitoring configuration directory
+      ansible.builtin.file:
+        path: "{{ monitoring_config_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Render Prometheus configuration
+      ansible.builtin.template:
+        src: prometheus.yml.j2
+        dest: "{{ monitoring_config_dir }}/prometheus.yml"
+        mode: "0644"
+      register: monitoring_prometheus_config
+
+    - name: Render Prometheus Compose override
+      ansible.builtin.template:
+        src: prometheus-compose.yml.j2
+        dest: "{{ monitoring_config_dir }}/compose.yml"
+        mode: "0644"
+
 - name: Start monitoring containers
   community.docker.docker_compose_v2:
     project_src: "{{ monitoring_base_dir }}"
-    files:
-      - "{{ monitoring_compose_file }}"
+    files: >-
+      {{ [monitoring_compose_file]
+         + ([(monitoring_config_dir ~ '/compose.yml') | relpath(monitoring_base_dir)]
+            if monitoring_node_exporter_targets | length > 0 else []) }}
     project_name: "{{ monitoring_compose_project }}"
     pull: "{{ 'always' if monitoring_pull_images else 'missing' }}"
     remove_orphans: "{{ monitoring_remove_orphans }}"
     state: present
+    wait: true
+    wait_timeout: 120
+
+- name: Reload changed Prometheus configuration
+  community.docker.docker_compose_v2:
+    project_src: "{{ monitoring_base_dir }}"
+    files:
+      - "{{ monitoring_compose_file }}"
+      - "{{ (monitoring_config_dir ~ '/compose.yml') | relpath(monitoring_base_dir) }}"
+    project_name: "{{ monitoring_compose_project }}"
+    services:
+      - "{{ monitoring_prometheus_service }}"
+    state: restarted
+    wait: true
+    wait_timeout: 120
+  when: monitoring_prometheus_config | default({}) is changed

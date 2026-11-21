@@ -71,7 +71,7 @@ An asynchronous MariaDB replica in AZ B is a possible future disaster-recovery e
 | Area | Technology | Responsibility |
 | --- | --- | --- |
 | Infrastructure | Terraform, AWS | VPC, subnets, EC2, ALB, EBS, IAM, S3, optional Route 53 |
-| Orchestration | Python, Boto3 | Prepare state storage, run Terraform, discover hosts, and invoke Docker setup |
+| Orchestration | Python, Boto3 | Prepare state storage, run Terraform, build inventory, and deploy services |
 | Host configuration | Ansible | Docker installation and application, database, Redis/Sentinel, and monitoring roles |
 | Runtime | Docker Engine, Docker Compose | Run application, database, Redis, Sentinel, and monitoring containers |
 | Database | MariaDB Galera | Three-node database tier with a custom container image |
@@ -87,7 +87,7 @@ An asynchronous MariaDB replica in AZ B is a possible future disaster-recovery e
 | `config/` | S3 bucket security helper |
 | `utils/backend.py` | Prepare and secure the state bucket |
 | `utils/terraform.py` | Run Terraform and parse/validate host outputs |
-| `utils/ansible.py` | Invoke Docker setup using all host public IPs |
+| `utils/ansible.py` | Build the Ansible inventory and run each deployment stage |
 | `ansible/ansible.cfg` | Ansible connection and role configuration |
 | `ansible/playbooks/` | Setup, database, Redis, application, and monitoring playbooks |
 | `ansible/roles/docker/` | Docker Engine and Compose installation |
@@ -97,7 +97,7 @@ An asynchronous MariaDB replica in AZ B is a possible future disaster-recovery e
 | `ansible/roles/monitoring/` | Monitoring repository checkout and Compose deployment |
 | `scripts/` | Tool installation and SSH key generation |
 | `keys/` | Locally generated SSH keys; private keys must stay out of Git |
-| `main.py` | Orchestrate backend, Terraform, host discovery, and Docker setup |
+| `main.py` | Orchestrate the backend, Terraform, host discovery, and service deployment |
 | `deploy.sh`, `deploy.ps1` | Local setup entrypoints |
 | `example.env` | Environment configuration template |
 
@@ -126,11 +126,37 @@ Copy-Item example.env .env
 | `DOMAIN_NAME` | empty | Existing public hosted-zone domain, required when `USE_DOMAIN=true` |
 | `ADMIN_ALLOWED_CIDR` | `203.0.113.10/32` | Replace this documentation address with your actual administrator public IPv4 CIDR |
 
-The entrypoint loads `.env` into the process environment. Python explicitly passes `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` to Boto3; Terraform inherits the AWS environment. Temporary credentials also require the session token to be handled correctly. The current AWS provider configuration does not consume the custom `REGION` variable directly, so set `AWS_DEFAULT_REGION` or configure the same region in your AWS profile.
+The entrypoint loads `.env` into the process environment. Boto3 and Terraform support temporary environment credentials through `AWS_SESSION_TOKEN`. Set `AWS_DEFAULT_REGION` or configure the same region in your AWS profile so the provider matches `REGION`.
 
 Terraform rejects `ADMIN_ALLOWED_CIDR=0.0.0.0/0`; `0.0.0.0` without a prefix is also invalid. Use an appropriate restrictive CIDR.
 
-Ansible will additionally need application secrets and runtime settings, including the application key, database credentials, Redis connection details, application URL, and uploads bucket name. Terraform outputs alone do not supply all of these values.
+Create a private `deployment.json` in the repository root, or pass `--config path/to/settings.json`. Replace the example strings and use the numeric UIDs/GIDs from the actual container images.
+
+```json
+{
+  "app_key": "base64:REPLACE_WITH_A_LARAVEL_APP_KEY",
+  "app_repo_version": "REPLACE_WITH_A_RELEASE_COMMIT_SHA",
+  "app_compose_file": "docker-compose.prod.yml",
+  "database_image": "registry.example.com/galera:tested-release",
+  "database_wsrep_provider": "/path/in/image/to/libgalera_smm.so",
+  "database_root_password": "REPLACE",
+  "database_password": "REPLACE",
+  "database_sst_password": "REPLACE",
+  "database_data_uid": 999,
+  "database_data_gid": 999,
+  "database_allow_format": true,
+  "redis_image": "redis:YOUR_TESTED_TAG",
+  "redis_sentinel_image": "redis:YOUR_TESTED_TAG",
+  "redis_password": "REPLACE",
+  "redis_sentinel_password": "REPLACE",
+  "redis_data_uid": 999,
+  "redis_data_gid": 999,
+  "redis_sentinel_uid": 999,
+  "redis_sentinel_gid": 999
+}
+```
+
+Set `database_allow_format` to true only when provisioning the dedicated blank database volumes. The deployment locates those volumes by their Nitro EBS device IDs. The application release must contain a Compose file that uses the external database and Redis. Set `app_repo_url` or `monitoring_repo_url` when you use a different checkout. The monitoring Compose file must have a Prometheus service, named `prometheus` by default, using `/etc/prometheus/prometheus.yml`. Use `monitoring_prometheus_service` if the service name differs.
 
 ## Local setup and execution
 
@@ -144,27 +170,27 @@ Requirements:
 
 - Access to AWS APIs, package repositories, and application repositories.
 
-Run from the repository root:
+For the first deployment of a new database, run from the repository root:
 
 ```bash
-bash ./deploy.sh
+bash ./deploy.sh --initialize-database
 ```
 
 PowerShell entrypoint:
 
 ```powershell
-.\deploy.ps1
+.\deploy.ps1 --initialize-database
 ```
 
-The setup scripts load `.env`, export Terraform inputs, generate SSH keys, prepare local tools, and install Python dependencies in a virtual environment. Ansible runs on Linux. On Windows, run the orchestration within WSL, or implement an explicit WSL invocation bridge; installing Ansible in WSL does not make it executable by Windows Python.
+The PowerShell entrypoint runs the Bash workflow in the default WSL distribution. Both entrypoints load `.env` as shell syntax, prepare tooling and SSH keys, and apply and deploy in the same Linux environment.
 
-**The deployment entrypoint invokes `main.py --apply`, which applies infrastructure and then runs Docker setup. Run it in the same Linux/WSL environment as Terraform, Python, Ansible, and the SSH keys.
+For later releases, update `app_repo_version` and run the same command without `--initialize-database`.
 
 For direct Python execution, after preparing the virtual environment and loading environment variables:
 
 ```bash
 ./env/bin/python main.py          # Create a Terraform plan
-./env/bin/python main.py --apply  # Apply a new plan, discover hosts, and run Docker setup
+./env/bin/python main.py --apply  # Apply and run all service deployment stages
 ```
 
 Without `--apply`, infrastructure resources are only planned, but the Python bootstrap can still create or update the S3 state bucket. With `--apply`, Python creates a new plan, applies it, reads host outputs, and invokes `setup.yml`; it does not reuse a plan reviewed during a previous invocation.
@@ -197,24 +223,19 @@ Python reads `terraform output -json` after a successful apply. Outputs include 
 
 ## Ansible workflow
 
-The current Python flow runs Terraform and then `setup.yml`. It passes all ten public IPs as inline inventory, the SSH key path, and `project_name` through CLI arguments. `utils/ansible.py` selects `ansible/ansible.cfg` and uses the Ansible directory as its working directory.
+After Terraform applies, Python builds a temporary inventory with named groups, public SSH addresses, private service addresses, EBS device paths, and monitoring targets. Each playbook is limited to its own group. A failed stage stops the workflow.
 
-`setup.yml` waits for SSH/Python readiness, gathers facts, and installs Docker Engine and Compose on all hosts. It does not yet invoke the service-specific playbooks.
-
-Service deployment order:
-
-1. Provision storage and explicitly bootstrap the first Galera node, then join the other database nodes.
-2. Initialize the designated Redis primary first, followed by replicas and Sentinels.
-3. Configure monitoring with private targets.
-4. Deploy application hosts using external database and Redis connections.
-
-The service playbooks use `hosts: all`; Python must supply only the relevant hosts for each invocation. Database and Redis configuration also require per-host variables, such as private addresses, node names, and container UID/GID. A generated inventory can carry those values without a committed static inventory directory. Inline inventory lists require a trailing comma.
+1. Wait for SSH and install Docker Engine, Compose, and Node Exporter on the scrape targets.
+2. Provision Galera storage and start the database nodes in order. On initial deployment, start the seed in bootstrap mode, join the peers, then recreate the seed in normal mode.
+3. Configure the initial Redis primary, then the replicas and Sentinels.
+4. Start monitoring with the private Node Exporter targets.
+5. Release the application one host at a time, waiting for its local health check before continuing.
 
 ## Database provisioning
 
 The database role validates configuration and secrets, inspects the supplied EBS device, and formats a blank volume only when `database_allow_format` is enabled. It mounts by filesystem UUID and renders Galera, environment, and Compose templates.
 
-The custom image must implement initialization, SST credentials, Galera startup, and a health check for Primary, ready, and Synced status. First-cluster bootstrap and full-cluster recovery are explicit operations; a persistent bootstrap flag must not create a new cluster on ordinary restarts. Database maintenance processes one host at a time.
+The custom image must support the role's `GALERA_BOOTSTRAP` environment variable, database initialization and SST credentials, and `/usr/local/bin/galera-healthcheck` for Primary, ready, and Synced status. Bootstrap mode disables the seed container's automatic restart until the other members have joined. A rerun can continue with a healthy bootstrap seed. If that seed stops after writing database files, recover the cluster before retrying. Existing databases created with older versions of the role may have literal quote characters in credentials or identifiers because Compose preserves quotes in raw environment files. Reconcile those database values before switching the application to the new configuration.
 
 ## Redis and Sentinel
 

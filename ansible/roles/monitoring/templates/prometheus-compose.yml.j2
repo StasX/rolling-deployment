@@ -1,0 +1,4 @@
+services:
+  {{ monitoring_prometheus_service }}:
+    volumes:
+      - {{ (monitoring_config_dir ~ '/prometheus.yml:/etc/prometheus/prometheus.yml:ro') | to_json }}

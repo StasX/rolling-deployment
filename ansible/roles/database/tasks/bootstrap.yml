@@ -1,0 +1,66 @@
+- name: Check for an initialized MariaDB data directory
+  ansible.builtin.stat:
+    path: "{{ database_data_dir }}/mysql"
+  register: database_system_tables
+
+- name: Check whether the seed has bootstrap configuration
+  ansible.builtin.command:
+    argv:
+      - grep
+      - -qx
+      - GALERA_BOOTSTRAP=true
+      - "{{ database_base_dir }}/.env"
+  register: database_bootstrap_config
+  changed_when: false
+  failed_when: database_bootstrap_config.rc not in [0, 1, 2]
+
+- name: Determine whether to start the initial primary component
+  ansible.builtin.set_fact:
+    database_bootstrap: >-
+      {{ (database_initialize_cluster | default(false) | bool)
+         and not (database_finalize_bootstrap | default(false) | bool)
+         and not database_system_tables.stat.exists }}
+
+- name: Check the bootstrap container before proceeding to peers
+  when:
+    - database_bootstrap_config.rc == 0
+    - database_system_tables.stat.exists
+    - not (database_finalize_bootstrap | default(false) | bool)
+  block:
+    - name: Find the healthy bootstrap container
+      ansible.builtin.command:
+        argv:
+          - docker
+          - ps
+          - --quiet
+          - --filter
+          - "label=com.docker.compose.project={{ database_compose_project }}"
+          - --filter
+          - label=com.docker.compose.service=database
+          - --filter
+          - health=healthy
+      register: database_running_seed
+      changed_when: false
+      failed_when: false
+      retries: "{{ database_health_retries }}"
+      delay: "{{ database_health_delay }}"
+      until:
+        - database_running_seed.rc == 0
+        - database_running_seed.stdout | length > 0
+      ignore_errors: true
+
+    - name: Require a healthy seed to continue an interrupted bootstrap
+      ansible.builtin.assert:
+        that:
+          - database_running_seed.rc == 0
+          - database_running_seed.stdout | length > 0
+        fail_msg: "The initialized Galera bootstrap seed is unhealthy. Recover the cluster before retrying."
+
+    - name: Leave the running bootstrap container in place until peers join
+      ansible.builtin.meta: end_host
+
+- name: Skip bootstrap finalization on a normally configured seed
+  ansible.builtin.meta: end_host
+  when:
+    - database_finalize_bootstrap | default(false) | bool
+    - database_bootstrap_config.rc != 0

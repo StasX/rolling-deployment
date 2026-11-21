@@ -4,6 +4,7 @@
   gather_facts: true
 
   serial: 1
+  order: sorted
   any_errors_fatal: true
 
   roles:

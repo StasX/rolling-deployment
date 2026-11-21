@@ -22,6 +22,7 @@ tfplan.*
 
 # public environment variables
 .env
+deployment.json
 
 # python
 env/

@@ -139,6 +139,12 @@
     group: "{{ database_data_gid | string }}"
     mode: "0750"
 
+- name: Manage initial Galera bootstrap on the seed
+  ansible.builtin.include_tasks: bootstrap.yml
+  when:
+    - database_managed_bootstrap | default(false)
+    - database_seed | default(false)
+
 - name: Configure MariaDB and Galera
   ansible.builtin.template:
     src: galera.cnf.j2

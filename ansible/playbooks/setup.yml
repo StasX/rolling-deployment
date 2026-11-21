@@ -15,3 +15,21 @@
 
   roles:
     - docker
+
+  tasks:
+    - name: Install Node Exporter on scrape targets
+      ansible.builtin.apt:
+        name: prometheus-node-exporter
+        state: present
+      when:
+        - deployment_managed_inventory | default(false)
+        - "'monitoring' not in group_names"
+
+    - name: Start Node Exporter on scrape targets
+      ansible.builtin.service:
+        name: prometheus-node-exporter
+        state: started
+        enabled: true
+      when:
+        - deployment_managed_inventory | default(false)
+        - "'monitoring' not in group_names"

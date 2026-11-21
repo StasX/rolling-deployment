@@ -1,7 +1,7 @@
 import os
 import boto3
 import argparse
-from utils.ansible import setup_hosts
+from utils.ansible import deploy_services, load_deployment_config
 from utils.backend import prepare_backend
 from utils.terraform import run_terraform, get_hosts
 from pathlib import Path
@@ -22,16 +22,30 @@ def main():
         "--apply",
         dest="apply_changes",
         action="store_true",
-        help="Apply Terraform changes and configure EC2 hosts",
+        help="Apply Terraform changes and deploy all services",
+    )
+    parser.add_argument(
+        "--config", type=Path, default=BASE_DIR / "deployment.json",
+        help="JSON file with deployment settings",
+    )
+    parser.add_argument(
+        "--initialize-database", action="store_true",
+        help="Bootstrap Galera on the seed node for a new cluster",
     )
     args = parser.parse_args()
+    if args.initialize_database and not args.apply_changes:
+        parser.error("--initialize-database requires --apply")
 
     if not PROJECT_NAME:
         raise ValueError("Environment variable PROJECT_NAME must be set.")
 
+    if args.apply_changes:
+        deployment_config = load_deployment_config(args.config, BASE_DIR, PROJECT_NAME)
+
     session = boto3.Session(
         aws_access_key_id=AWS_ACCESS_KEY,
         aws_secret_access_key=AWS_SECRET_KEY,
+        aws_session_token=os.getenv("AWS_SESSION_TOKEN"),
         region_name=REGION,
     )
     s3_client = session.client("s3")
@@ -52,7 +66,10 @@ def main():
     if args.apply_changes:
         run_terraform("apply", "tfplan", INFRA_DIR=INFRA_DIR)
         hosts = get_hosts(INFRA_DIR=INFRA_DIR)
-        setup_hosts(hosts, BASE_DIR=BASE_DIR, PROJECT_NAME=PROJECT_NAME)
+        deploy_services(
+            hosts, deployment_config, args.initialize_database,
+            BASE_DIR=BASE_DIR, PROJECT_NAME=PROJECT_NAME, REGION=REGION,
+        )
 
 
 if __name__ == "__main__":

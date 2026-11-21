@@ -1,9 +1,13 @@
 #!/bin/bash
 set -e
 
+cd "$(dirname "${BASH_SOURCE[0]}")"
+export PATH="$HOME/.local/bin:$PATH"
+
 if [ -f .env ]; then
   set -a
-  source .env
+  # shellcheck source=.env
+  source <(sed 's/\r$//' .env)
   set +a
 fi
 
@@ -43,4 +47,4 @@ python3 -m venv env
 source env/bin/activate
 pip install -r requirements.txt
 
-env/bin/python main.py --apply
+env/bin/python main.py --apply "$@"
