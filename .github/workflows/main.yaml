@@ -66,7 +66,15 @@ jobs:
         shell: bash
         run: |
           cp example.env .env
-          shellcheck --external-sources deploy.sh scripts/*.sh
+          shellcheck --external-sources --format=checkstyle deploy.sh scripts/*.sh | tee shellcheck.xml
+
+      - name: Upload ShellCheck report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: shellcheck-results
+          path: shellcheck.xml
+          if-no-files-found: warn
 
   powershell:
     name: PSScriptAnalyzer - PowerShell
@@ -100,10 +108,24 @@ jobs:
             }
           )
 
+          if ($issues.Count -eq 0) {
+            $report = "PSScriptAnalyzer found no errors or warnings in $($scripts.Count) scripts."
+          } else {
+            $report = $issues | Format-List RuleName, Severity, ScriptName, Line, Message | Out-String -Width 240
+          }
+          $report | Tee-Object -FilePath psscriptanalyzer.txt
+
           if ($issues.Count -gt 0) {
-            $issues | Format-Table -AutoSize | Out-String | Write-Host
             throw "PSScriptAnalyzer found $($issues.Count) issues."
           }
+
+      - name: Upload PSScriptAnalyzer report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: psscriptanalyzer-results
+          path: psscriptanalyzer.txt
+          if-no-files-found: warn
 
   python:
     name: Python - Ruff and Bandit
@@ -122,9 +144,21 @@ jobs:
         run: python -m pip install ruff bandit
 
       - name: Run Ruff
-        run: ruff check main.py utils/ config/
+        shell: bash
+        run: ruff check main.py utils/ config/ 2>&1 | tee ruff.txt
 
       - name: Run Bandit
         if: ${{ !cancelled() }}
-        run: bandit -r main.py utils/ config/
+        shell: bash
+        run: bandit -r main.py utils/ config/ 2>&1 | tee bandit.txt
+
+      - name: Upload Python analysis reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: python-analysis-results
+          path: |
+            ruff.txt
+            bandit.txt
+          if-no-files-found: warn
 
