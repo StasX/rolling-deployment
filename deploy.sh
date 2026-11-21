@@ -44,7 +44,6 @@ bash ./scripts/install_terraform.sh
 bash ./scripts/install_ansible.sh
 
 python3 -m venv env
-source env/bin/activate
-pip install -r requirements.txt
+env/bin/python -m pip install -r requirements.txt
 
 env/bin/python main.py --apply "$@"
