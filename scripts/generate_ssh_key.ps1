@@ -24,4 +24,4 @@ if (-not (Test-Path $PemPath)) {
     Move-Item -Path $KeyPath -Destination $PemPath
 }
 
-Write-Host "SSH key pair generated at $PemPath and $PubPath"
+Write-Information "SSH key pair generated at $PemPath and $PubPath" -InformationAction Continue

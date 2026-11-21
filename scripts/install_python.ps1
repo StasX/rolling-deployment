@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     if (Get-Command winget -ErrorAction SilentlyContinue) {
-        Write-Host "Python not found. Installing Python..."
+        Write-Information "Python not found. Installing Python..." -InformationAction Continue
 
         winget install `
             --id Python.Python.3.14 `

@@ -24,7 +24,7 @@ if (-not (Get-Command terraform -ErrorAction SilentlyContinue)) {
 
         $Url = "https://releases.hashicorp.com/terraform/$TerraformVersion/terraform_${TerraformVersion}_windows_${Arch}.zip"
 
-        Write-Host "Downloading Terraform $TerraformVersion..."
+        Write-Information "Downloading Terraform $TerraformVersion..." -InformationAction Continue
 
         Invoke-WebRequest `
             -Uri $Url `
@@ -63,7 +63,7 @@ if (-not (Get-Command terraform -ErrorAction SilentlyContinue)) {
             )
         }
 
-        Write-Host "Terraform $TerraformVersion installed successfully."
+        Write-Information "Terraform $TerraformVersion installed successfully." -InformationAction Continue
     }
     finally {
         if (Test-Path $TempDir) {
