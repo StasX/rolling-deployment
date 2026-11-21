@@ -1,8 +1,3 @@
-data "aws_availability_zones" "available" {
-  state = "available"
-}
-
-
 resource "aws_vpc" "vpc" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_support   = true
@@ -47,7 +42,7 @@ resource "aws_subnet" "public_sn" {
     8,
     count.index
   )
-  availability_zone       = data.aws_availability_zones.available.names[count.index]
+  availability_zone       = var.AVAILABILITY_ZONES[count.index]
   map_public_ip_on_launch = false
 
   lifecycle {
@@ -89,7 +84,7 @@ resource "aws_route_table_association" "public_rt_assoc" {
 resource "aws_subnet" "monitoring_sn" {
   vpc_id                  = aws_vpc.vpc.id
   cidr_block              = cidrsubnet(aws_vpc.vpc.cidr_block, 8, 10)
-  availability_zone       = data.aws_availability_zones.available.names[1]
+  availability_zone       = var.AVAILABILITY_ZONES[1]
   map_public_ip_on_launch = false
 
   lifecycle {

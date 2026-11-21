@@ -23,6 +23,21 @@ variable "instance_type" {
   default     = "t3.medium"
 }
 
+# Network placement
+variable "AVAILABILITY_ZONES" {
+  type        = tuple([string, string])
+  description = "Ordered AWS Availability Zone names for public subnets 1 and 2"
+  nullable    = false
+
+  validation {
+    condition = (
+      alltrue([for zone in var.AVAILABILITY_ZONES : try(trimspace(zone) != "", false)]) &&
+      var.AVAILABILITY_ZONES[0] != var.AVAILABILITY_ZONES[1]
+    )
+    error_message = "Provide two distinct Availability Zone names in subnet order."
+  }
+}
+
 # Domain configuration
 variable "USE_DOMAIN" {
   type        = bool

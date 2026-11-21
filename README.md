@@ -120,6 +120,7 @@ Copy-Item example.env .env
 | `PROJECT_NAME` | `theschool-your-unique-suffix` | Resource identifier and current Terraform state bucket name; choose a globally unique, lowercase S3-compatible value |
 | `REGION` | `us-east-1` | Region used by Boto3 and the Terraform backend |
 | `AWS_DEFAULT_REGION` | `us-east-1` | AWS provider region; keep aligned with `REGION` |
+| `TF_VAR_AVAILABILITY_ZONES` | `'["us-east-1a","us-east-1b"]'` | Two AWS Availability Zone names in subnet order. Application, database, and Redis hosts use the first zone and monitoring uses the second. |
 | `MOST_RECENT` | `true` | Select the newest matching Ubuntu AMI |
 | `AMI_ID` | empty | Optional explicit AMI ID |
 | `USE_DOMAIN` | `false` | Enable the Route 53 application record |
@@ -129,6 +130,8 @@ Copy-Item example.env .env
 The entrypoint loads `.env` into the process environment. Boto3 and Terraform support temporary environment credentials through `AWS_SESSION_TOKEN`. Set `AWS_DEFAULT_REGION` or configure the same region in your AWS profile so the provider matches `REGION`.
 
 Terraform rejects `ADMIN_ALLOWED_CIDR=0.0.0.0/0`; `0.0.0.0` without a prefix is also invalid. Use an appropriate restrictive CIDR.
+
+For an existing deployment, set `TF_VAR_AVAILABILITY_ZONES` to the zones of `aws_subnet.public_sn[0]` and `aws_subnet.public_sn[1]` in that order. You can read each current `availability_zone` with `terraform -chdir=infra state show 'aws_subnet.public_sn[0]'` and the corresponding command for index 1. Check the plan for subnet replacements before applying.
 
 Create a private `deployment.json` in the repository root, or pass `--config path/to/settings.json`. Replace the example strings and use the numeric UIDs/GIDs from the actual container images.
 
