@@ -1,0 +1,8 @@
+services:
+  app:
+    image: {{ app_image | replace('$', '$$') | to_json }}
+    pull_policy: always
+    env_file: "{{ app_runtime_env_file }}"
+    restart: unless-stopped
+    ports:
+      - "80:{{ app_container_port }}"
