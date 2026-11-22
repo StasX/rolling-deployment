@@ -94,6 +94,7 @@ An asynchronous MariaDB replica in AZ B is a possible future disaster-recovery e
 | `ansible/roles/docker/` | Docker Engine and Compose installation |
 | `ansible/roles/app/` | Application checkout, environment, Compose deployment, and health checks |
 | `ansible/roles/database/` | EBS preparation, Galera configuration, and Compose deployment tasks |
+| `ansible/roles/database_proxy/` | HAProxy and Galera health checks on each application host |
 | `ansible/roles/redis/` | Redis/Sentinel initial configuration, persistence, and Compose deployment |
 | `ansible/roles/monitoring/` | Monitoring repository checkout and Compose deployment |
 | `scripts/` | Tool installation and SSH key generation |
@@ -217,6 +218,7 @@ Host information is exposed through these Terraform outputs:
 | `app_private_ips` | Internal application addresses and monitoring targets |
 | `database_public_ips` | SSH access to database hosts |
 | `database_private_ips` | Galera membership, database connections, and monitoring targets |
+| `app_instance_ids`, `app_target_group_arn` | Instance targets and target group for rolling ALB deployment |
 | `redis_public_ips` | SSH access to Redis hosts |
 | `redis_private_ips` | Redis replication, Sentinel discovery, and monitoring targets |
 | `monitoring_public_ip` | SSH access and administrator Grafana access |
@@ -233,13 +235,16 @@ After Terraform applies, Python builds a temporary inventory with named groups, 
 2. Provision Galera storage and start the database nodes in order. On initial deployment, start the seed in bootstrap mode, join the peers, then recreate the seed in normal mode.
 3. Configure the initial Redis primary, then the replicas and Sentinels.
 4. Start monitoring with the private Node Exporter targets.
-5. Release the application one host at a time, waiting for its local health check before continuing.
+5. Configure the local Galera proxy on each application host.
+6. Release the application one host at a time, waiting for both local and ALB health checks before continuing.
 
 ## Database provisioning
 
 The database role validates configuration and secrets, inspects the supplied EBS device, and formats a blank volume only when `database_allow_format` is enabled. It mounts by filesystem UUID and renders Galera, environment, and Compose templates.
 
 The custom image must support the role's `GALERA_BOOTSTRAP` environment variable, database initialization and SST credentials, and `/usr/local/bin/galera-healthcheck` for Primary, ready, and Synced status. Bootstrap mode disables the seed container's automatic restart until the other members have joined. A rerun can continue with a healthy bootstrap seed. If that seed stops after writing database files, recover the cluster before retrying. Existing databases created with older versions of the role may have literal quote characters in credentials or identifiers because Compose preserves quotes in raw environment files. Reconcile those database values before switching the application to the new configuration.
+
+Each application host runs HAProxy on its private IP, which is passed to its containers as `DB_HOST`. HAProxy prefers the first Galera node and uses the other nodes when it is unavailable. The health check requires a synchronized, ready, writable node in the Primary component. Applications must reconnect after a backend connection drops. [MariaDB Galera status variables](https://mariadb.com/resources/blog/setting-up-a-mariadb-enterprise-cluster-part-2-how-to-set-up-a-mariadb-cluster/)
 
 ## Redis and Sentinel
 
@@ -286,7 +291,7 @@ Setting `app_image` selects the image profile. RollingDeployment pulls the image
 
 To replace one application with another on the same stack, change `app_image` and redeploy. Keep `app_container_port` the same if both images use the same internal port. Both images receive the same MariaDB connection settings (`DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, and `DB_PASSWORD`) and the same Redis Sentinel settings listed above. During a rolling replacement, both versions must be compatible with the shared database schema and any sessions, cache entries, or queued jobs they share.
 
-With the `compose` profile, set `app_repo_url` and `app_repo_version`. The deployment uses `docker-compose.yaml` unless `app_compose_file` specifies a different filename. Each service that needs the deployment settings must import the generated file. The following is a service excerpt for an application that listens on container port `8080`.
+With the `compose` profile, set `app_repo_url` and `app_repo_version`. The deployment uses `docker-compose.yaml` unless `app_compose_file` specifies a different filename. Set `"app_env_services": ["web", "worker"]` in `deployment.json` to inject the environment into those existing Compose services. Alternatively, add `env_file` to the services in your own Compose file. Ansible also passes the generated file to Compose for interpolation. Compose's service-level `environment` entries still take precedence. [Docker Compose environment precedence](https://docs.docker.com/compose/how-tos/environment-variables/envvars-precedence/)
 
 ```yaml
 services:
@@ -301,9 +306,15 @@ services:
 
 The infrastructure routes to host port `80` and checks `/api/health`. Expose that endpoint from the web service. Workers can use the same `env_file` in their own Compose services.
 
-Reliable rolling releases require immutable release selection, ALB deregistration and connection draining, target-health verification before proceeding, and tested rollback to the previous release. Local health checks alone do not establish zero-downtime deployment.
+The deployment requires an active ALB listener and AWS credentials with `DescribeTargetGroups`, `DescribeTargetHealth`, `DeregisterTargets`, and `RegisterTargets` access. The controller saves the running Compose model and image IDs, drains one target, deploys and checks the local HTTP endpoint, then registers the target and waits for ALB health. It will stop before draining the last healthy target. [ALB connection draining](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/edit-target-group-attributes.html)
+
+If a deployment fails, the controller restores the previous release on that host and stops the rollout. Earlier hosts that passed health checks keep the new release. A target whose rollback fails stays out of service. On a first deployment there is no previous release to restore. Rollback covers Compose configuration, images, and versioned source files. Shared volumes and database changes need their own recovery strategy. Keep release files and local rollback images available, and run only one rollout against a target group at a time.
 
 Database schema changes need a separate migration strategy compatible with both old and new application versions.
+
+## Tests
+
+`python -m unittest discover -s tests` checks deployment profiles, Sentinel inventory, and ALB rollout and rollback ordering. `python tests/redis_failover.py` starts a Dockerized HTTP app, three Redis servers, and three Sentinels on an isolated network. It stops the Redis primary and one Sentinel, then verifies recovery through the same HTTP container, including data written before promotion and new writes afterward.
 
 ## IAM and backups
 

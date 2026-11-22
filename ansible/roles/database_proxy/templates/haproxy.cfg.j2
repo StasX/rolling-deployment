@@ -1,0 +1,21 @@
+global
+    user haproxy
+    group haproxy
+    external-check
+    insecure-fork-wanted
+
+defaults
+    mode tcp
+    timeout connect 3s
+    timeout client 1h
+    timeout server 1h
+    timeout check 3s
+
+listen galera
+    bind {{ db_host }}:{{ db_port | default(3306) }}
+    option external-check
+    external-check command /etc/haproxy/check-galera.sh
+    default-server inter 3s fall 2 rise 2 on-marked-down shutdown-sessions
+{% for address in app_database_backends %}
+    server galera-{{ loop.index }} {{ address }}:{{ database_port | default(3306) }} check{{ ' backup' if not loop.first else '' }}
+{% endfor %}

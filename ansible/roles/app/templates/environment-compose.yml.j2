@@ -1,0 +1,6 @@
+services:
+{% for service in app_env_services | unique %}
+  {{ service | to_json }}:
+    env_file:
+      - {{ app_runtime_env_file | to_json }}
+{% endfor %}

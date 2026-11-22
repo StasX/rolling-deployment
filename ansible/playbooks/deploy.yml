@@ -3,10 +3,11 @@
   become: true
   gather_facts: true
 
-  serial: "{{ app_deploy_serial | default(1) }}"
+  serial: 1
   max_fail_percentage: 0
 
   tasks:
     - name: Deploy application
       ansible.builtin.include_role:
         name: app
+        tasks_from: "{{ {'snapshot': 'snapshot', 'rollback': 'rollback', 'deploy': 'main'}[app_deploy_phase | default('deploy')] }}"

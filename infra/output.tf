@@ -17,6 +17,16 @@ output "app_private_ips" {
   }
 }
 
+output "app_instance_ids" {
+  description = "Application instance IDs used for rolling ALB registration"
+  value       = { for name, instance in aws_instance.app : name => instance.id }
+}
+
+output "app_target_group_arn" {
+  description = "Target group used for rolling deployments"
+  value       = aws_lb_target_group.app_tg.arn
+}
+
 
 output "monitoring_public_ip" {
   description = "Public IP address of monitoring instance"

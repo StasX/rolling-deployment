@@ -1,0 +1,54 @@
+- name: Install HAProxy and the MariaDB client
+  ansible.builtin.apt:
+    name:
+      - haproxy
+      - mariadb-client
+    state: present
+    update_cache: true
+
+- name: Install the Galera health check credentials
+  ansible.builtin.template:
+    src: galera-client.cnf.j2
+    dest: /etc/haproxy/galera-client.cnf
+    owner: root
+    group: haproxy
+    mode: "0640"
+  no_log: true
+
+- name: Install the Galera health check
+  ansible.builtin.copy:
+    src: check-galera.sh
+    dest: /etc/haproxy/check-galera.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure HAProxy
+  ansible.builtin.template:
+    src: haproxy.cfg.j2
+    dest: /etc/haproxy/haproxy.cfg
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/sbin/haproxy -c -f %s
+  register: database_proxy_config
+
+- name: Enable the database proxy
+  ansible.builtin.systemd_service:
+    name: haproxy
+    enabled: true
+    state: "{{ 'reloaded' if database_proxy_config.changed else 'started' }}"
+
+- name: Wait for a synchronized Galera backend through HAProxy
+  ansible.builtin.command:
+    argv:
+      - /etc/haproxy/check-galera.sh
+      - "{{ db_host }}"
+      - "{{ db_port | default(3306) }}"
+      - "{{ db_host }}"
+      - "{{ db_port | default(3306) }}"
+  changed_when: false
+  register: database_proxy_ready
+  until: database_proxy_ready.rc == 0
+  retries: 15
+  delay: 2

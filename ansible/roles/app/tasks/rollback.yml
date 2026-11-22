@@ -1,0 +1,23 @@
+- name: Restore previous application release
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - "-p"
+      - "{{ app_compose_project }}"
+      - "-f"
+      - "{{ app_release_dir }}/rollback.json"
+      - up
+      - "--detach"
+      - "--no-build"
+      - "--pull"
+      - never
+      - "--remove-orphans"
+      - "--wait"
+      - "--wait-timeout"
+      - "120"
+  changed_when: true
+  no_log: true
+
+- name: Verify restored application health
+  ansible.builtin.import_tasks: health.yml

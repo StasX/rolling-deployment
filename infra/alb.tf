@@ -38,6 +38,8 @@ resource "aws_lb_target_group" "app_tg" {
   target_type = "instance"
   vpc_id      = aws_vpc.vpc.id
 
+  deregistration_delay = 30
+
   health_check {
     enabled             = true
     path                = "/api/health"

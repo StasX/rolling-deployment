@@ -69,6 +69,7 @@ def main():
         hosts = get_hosts(INFRA_DIR=INFRA_DIR)
         deploy_services(
             hosts, deployment_config, args.initialize_database,
+            session.client("elbv2"),
             BASE_DIR=BASE_DIR, PROJECT_NAME=PROJECT_NAME, REGION=REGION,
         )
 

@@ -1,9 +1,13 @@
 import json
 import os
+import re
 import shutil
 import subprocess  # nosec B404
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from uuid import uuid4
+
+from .rolling import deploy_application
 
 DEPLOYMENT_INPUT_TYPES = {
     "database_image": str,
@@ -29,6 +33,7 @@ OPTIONAL_DEPLOYMENT_INPUT_TYPES = {
     "app_repo_url": str,
     "app_repo_version": str,
     "app_compose_file": str,
+    "app_env_services": list,
 }
 
 
@@ -81,6 +86,12 @@ def load_deployment_config(config_path, base_dir, project_name):
         invalid.append("app_container_port")
     if profile == "image" and "app_compose_file" in config and "app_compose_file" not in invalid:
         invalid.append("app_compose_file")
+    services = config.get("app_env_services", [])
+    if isinstance(services, list) and (
+        any(not isinstance(name, str) or not re.fullmatch(r"[a-zA-Z0-9._-]+", name) for name in services)
+        or (profile == "image" and services)
+    ):
+        invalid.append("app_env_services")
     if "database_allow_format" in config and type(config["database_allow_format"]) is not bool:
         invalid.append("database_allow_format")
     for name in (
@@ -123,18 +134,21 @@ def build_inventory(hosts, project_name, region, initialize_database):
         )
 
     redis_ips = hosts["redis"]["private_ips"]
-    redis_primary_ip = redis_ips[min(redis_ips)]
     redis_sentinel_ips = [redis_ips[name] for name in sorted(redis_ips)]
+    if len(redis_sentinel_ips) != 3 or len(set(redis_sentinel_ips)) != 3:
+        raise ValueError("Expected three distinct Redis Sentinel private IP addresses.")
     groups["redis"]["vars"] = {
         "redis_node_private_ips": redis_sentinel_ips,
-        "redis_initial_primary_private_ip": redis_primary_ip,
+        "redis_initial_primary_private_ip": redis_sentinel_ips[0],
     }
     for name, host in groups["redis"]["hosts"].items():
         host.update(redis_node_name=name, redis_node_private_ip=redis_ips[name])
 
+    for name, host in groups["application"]["hosts"].items():
+        host["db_host"] = hosts["application"]["private_ips"][name]
     groups["application"]["vars"] = {
         "app_url": hosts["app_url"],
-        "db_host": database_ips[database_seed],
+        "app_database_backends": [database_ips[name] for name in sorted(database_ips)],
         "db_database": "{{ database_name | default(project_name | lower) }}",
         "db_username": "{{ database_user | default('app') }}",
         "redis_sentinel_ips": redis_sentinel_ips,
@@ -164,7 +178,10 @@ def build_inventory(hosts, project_name, region, initialize_database):
     }, database_seed
 
 
-def deploy_services(hosts, deployment_config, initialize_database, BASE_DIR, PROJECT_NAME, REGION):
+def deploy_services(hosts, deployment_config, initialize_database, elbv2, BASE_DIR, PROJECT_NAME, REGION):
+    target_group = elbv2.describe_target_groups(TargetGroupArns=[hosts["app_target_group_arn"]])
+    if not target_group["TargetGroups"][0]["LoadBalancerArns"]:
+        raise RuntimeError("The application target group needs an ALB listener before deploying.")
     ansible_playbook = find_ansible_playbook()
     ansible_dir = BASE_DIR / "ansible"
     ssh_key = BASE_DIR / "keys" / f"{PROJECT_NAME}-key.pem"
@@ -179,7 +196,7 @@ def deploy_services(hosts, deployment_config, initialize_database, BASE_DIR, PRO
         }),
         ("redis", "redis", {}),
         ("monitoring", "monitoring", {}),
-        ("deploy", "application", {}),
+        ("database-proxy", "application", {}),
     ]
     with TemporaryDirectory(prefix="rolling-deployment-") as directory:
         inventory_path = Path(directory) / "inventory.yml"
@@ -190,7 +207,7 @@ def deploy_services(hosts, deployment_config, initialize_database, BASE_DIR, PRO
         private_key = Path(directory) / "ssh-key.pem"
         shutil.copyfile(ssh_key, private_key)
         private_key.chmod(0o600)
-        for playbook, limit, variables in stages:
+        def run_playbook(playbook, limit, variables):
             print(f"Running {playbook}.yml on {limit}...", flush=True)
             # Run the locally selected executable and playbook without a shell.
             subprocess.run(  # nosec B603
@@ -206,3 +223,15 @@ def deploy_services(hosts, deployment_config, initialize_database, BASE_DIR, PRO
                 env=ansible_env,
                 check=True,
             )
+
+        for playbook, limit, variables in stages:
+            run_playbook(playbook, limit, variables)
+
+        release = uuid4().hex
+
+        def run_app(phase, host):
+            run_playbook("deploy", host, {"app_deploy_phase": phase, "app_release_id": release})
+
+        deploy_application(
+            elbv2, hosts["app_target_group_arn"], hosts["application"]["instance_ids"], run_app,
+        )

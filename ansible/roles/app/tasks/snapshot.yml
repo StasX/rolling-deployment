@@ -1,0 +1,7 @@
+- name: Capture the running Compose release before draining
+  ansible.builtin.script:
+    cmd: >-
+      snapshot.py {{ app_compose_project | quote }} {{ app_runtime_dir | quote }}
+      {{ (app_release_dir ~ '/rollback.json') | quote }}
+    executable: python3
+  no_log: true

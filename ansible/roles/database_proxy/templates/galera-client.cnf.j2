@@ -1,0 +1,4 @@
+[client]
+user={{ db_username | to_json(ensure_ascii=false) }}
+password={{ database_password | to_json(ensure_ascii=false) }}
+connect-timeout=2

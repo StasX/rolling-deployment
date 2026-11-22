@@ -9,10 +9,13 @@ db_password: "{{ database_password }}"
 
 # Docker Compose
 app_runtime_dir: "{{ app_base_dir }}-runtime"
-app_runtime_env_file: "{{ app_runtime_dir }}/.env"
-app_compose_file: "{{ app_runtime_dir ~ '/image-compose.yml' if app_profile == 'image' else 'docker-compose.yaml' }}"
-app_compose_project_src: "{{ app_runtime_dir if app_profile == 'image' else app_base_dir }}"
+app_release_dir: "{{ app_runtime_dir }}/releases/{{ app_release_id }}"
+app_runtime_env_file: "{{ app_release_dir }}/.env"
+app_compose_file: "{{ app_release_dir ~ '/image-compose.yml' if app_profile == 'image' else 'docker-compose.yaml' }}"
+app_compose_project_src: "{{ app_release_dir if app_profile == 'image' else app_release_dir ~ '/source' }}"
 app_compose_project: "{{ project_name | lower }}"
+app_env_services: []
+app_compose_files: "{{ [app_compose_file] + ([app_release_dir ~ '/environment-compose.yml'] if app_env_services else []) }}"
 redis_sentinel_port: 26379
 
 # Deployment
@@ -23,7 +26,3 @@ app_health_url: "http://127.0.0.1/api/health"
 app_health_status_code: 200
 app_health_retries: 10
 app_health_delay: 5
-
-# Rolling deployment
-app_deploy_serial: 1
-app_deploy_max_fail_percentage: 0

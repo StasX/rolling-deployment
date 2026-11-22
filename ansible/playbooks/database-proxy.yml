@@ -1,0 +1,8 @@
+- name: Configure the database proxy on application hosts
+  hosts: application
+  become: true
+  gather_facts: true
+  serial: 1
+  any_errors_fatal: true
+  roles:
+    - database_proxy

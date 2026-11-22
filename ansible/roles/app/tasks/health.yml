@@ -1,0 +1,11 @@
+- name: Check application HTTP endpoint # checkov:skip=CKV2_ANSIBLE_1:Local HTTP health check
+  ansible.builtin.uri:
+    url: "{{ app_health_url }}"
+    method: GET
+    status_code: "{{ app_health_status_code }}"
+    return_content: false
+  register: app_health_result
+  retries: "{{ app_health_retries }}"
+  delay: "{{ app_health_delay }}"
+  until: app_health_result.status | default(0) == app_health_status_code
+  changed_when: false
