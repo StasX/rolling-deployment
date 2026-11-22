@@ -1,8 +1,29 @@
+- name: Validate application profile
+  ansible.builtin.assert:
+    that:
+      - app_profile in ['compose', 'image']
+      - app_profile != 'compose' or app_repo_url | default('') | length > 0
+      - app_profile != 'image' or app_image | default('') | length > 0
+      - app_profile != 'image' or app_compose_file == app_runtime_dir ~ '/image-compose.yml'
+      - app_profile != 'image' or (app_container_port | int >= 1 and app_container_port | int <= 65535)
+    fail_msg: "Choose a supported app profile and supply its required settings."
+
+- name: Validate application Sentinel settings
+  ansible.builtin.assert:
+    that:
+      - redis_sentinel_ips | default([]) | length == 3
+      - redis_sentinel_ips | unique | length == 3
+      - redis_sentinel_master_name | default('') | length > 0
+      - redis_sentinel_password | default('') | length > 0
+      - redis_password | default('') | length > 0
+  no_log: true
+
 - name: Install Git
   ansible.builtin.apt:
     name: git
     state: present
     update_cache: true
+  when: app_profile != 'image'
 
 - name: Create application directory
   ansible.builtin.file:
@@ -11,6 +32,7 @@
     owner: root
     group: root
     mode: "0755"
+  when: app_profile != 'image'
 
 - name: Clone application repository
   ansible.builtin.git:
@@ -18,11 +40,29 @@
     dest: "{{ app_base_dir }}"
     version: "{{ app_repo_version }}"
     update: true
+  when: app_profile != 'image'
+
+- name: Create application runtime directory
+  ansible.builtin.file:
+    path: "{{ app_runtime_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install image deployment Compose file
+  ansible.builtin.template:
+    src: image-compose.yml.j2
+    dest: "{{ app_compose_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: app_profile == 'image'
 
 - name: Configure application environment
   ansible.builtin.template:
     src: .env.j2
-    dest: "{{ app_base_dir }}/.env"
+    dest: "{{ app_runtime_env_file }}"
     owner: root
     group: root
     mode: "0600"
@@ -31,12 +71,14 @@
 
 - name: Deploy application containers
   community.docker.docker_compose_v2:
-    project_src: "{{ app_base_dir }}"
+    project_src: "{{ app_compose_project_src }}"
     files:
       - "{{ app_compose_file }}"
     project_name: "{{ app_compose_project }}"
     state: present
-    pull: "{{ 'always' if app_pull_images else 'missing' }}"
+    pull: "{{ ('always' if app_pull_images else 'missing') if app_pull_images is defined else 'policy' }}"
+    env_files:
+      - "{{ app_runtime_env_file }}"
     remove_orphans: "{{ app_remove_orphans }}"
     wait: true
     wait_timeout: 120

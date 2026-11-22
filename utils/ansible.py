@@ -6,8 +6,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 DEPLOYMENT_INPUT_TYPES = {
-    "app_key": str,
-    "app_repo_version": str,
     "database_image": str,
     "database_wsrep_provider": str,
     "database_root_password": str,
@@ -23,6 +21,14 @@ DEPLOYMENT_INPUT_TYPES = {
     "redis_data_gid": int,
     "redis_sentinel_uid": int,
     "redis_sentinel_gid": int,
+}
+OPTIONAL_DEPLOYMENT_INPUT_TYPES = {
+    "app_image": str,
+    "app_container_port": int,
+    "app_profile": str,
+    "app_repo_url": str,
+    "app_repo_version": str,
+    "app_compose_file": str,
 }
 
 
@@ -47,7 +53,17 @@ def load_deployment_config(config_path, base_dir, project_name):
         raise TypeError("Deployment configuration must be a JSON object.")
 
     invalid = []
-    for name, kind in DEPLOYMENT_INPUT_TYPES.items():
+    input_types = DEPLOYMENT_INPUT_TYPES | {
+        name: kind for name, kind in OPTIONAL_DEPLOYMENT_INPUT_TYPES.items() if name in config
+    }
+    if "app_image" in config:
+        default_profile = "image"
+    else:
+        default_profile = "compose"
+        input_types["app_repo_url"] = str
+        input_types["app_repo_version"] = str
+    profile = config.get("app_profile", default_profile)
+    for name, kind in input_types.items():
         value = config.get(name)
         if (
             type(value) is not kind
@@ -55,6 +71,16 @@ def load_deployment_config(config_path, base_dir, project_name):
             or (kind is int and value < 0)
         ):
             invalid.append(name)
+    if (
+        profile not in ("compose", "image")
+        or (profile == "image") != ("app_image" in config)
+    ) and "app_profile" not in invalid:
+        invalid.append("app_profile")
+    port = config.get("app_container_port", 8080)
+    if type(port) is int and not 1 <= port <= 65535 and "app_container_port" not in invalid:
+        invalid.append("app_container_port")
+    if profile == "image" and "app_compose_file" in config and "app_compose_file" not in invalid:
+        invalid.append("app_compose_file")
     if "database_allow_format" in config and type(config["database_allow_format"]) is not bool:
         invalid.append("database_allow_format")
     for name in (
@@ -98,8 +124,9 @@ def build_inventory(hosts, project_name, region, initialize_database):
 
     redis_ips = hosts["redis"]["private_ips"]
     redis_primary_ip = redis_ips[min(redis_ips)]
+    redis_sentinel_ips = [redis_ips[name] for name in sorted(redis_ips)]
     groups["redis"]["vars"] = {
-        "redis_node_private_ips": list(redis_ips.values()),
+        "redis_node_private_ips": redis_sentinel_ips,
         "redis_initial_primary_private_ip": redis_primary_ip,
     }
     for name, host in groups["redis"]["hosts"].items():
@@ -110,7 +137,7 @@ def build_inventory(hosts, project_name, region, initialize_database):
         "db_host": database_ips[database_seed],
         "db_database": "{{ database_name | default(project_name | lower) }}",
         "db_username": "{{ database_user | default('app') }}",
-        "redis_host": redis_primary_ip,
+        "redis_sentinel_ips": redis_sentinel_ips,
         "aws_region": region,
         "aws_uploads_bucket": hosts["uploads_bucket"],
     }
@@ -128,6 +155,7 @@ def build_inventory(hosts, project_name, region, initialize_database):
         "all": {
             "vars": {
                 "project_name": project_name,
+                "redis_sentinel_master_name": f"{project_name.lower()}-redis",
                 "database_initialize_cluster": initialize_database,
                 "deployment_managed_inventory": True,
             },

@@ -1,17 +1,21 @@
 # Application repository
-app_repo_url: "https://github.com/StasX/TheSchool.git"
 app_repo_version: "main"
 app_base_dir: "/opt/app"
+app_profile: "{{ 'image' if app_image is defined else 'compose' }}"
+app_container_port: 8080
 
 # Use the database role's credential unless a separate application password is supplied.
 db_password: "{{ database_password }}"
 
 # Docker Compose
-app_compose_file: "docker-compose.yml"
+app_runtime_dir: "{{ app_base_dir }}-runtime"
+app_runtime_env_file: "{{ app_runtime_dir }}/.env"
+app_compose_file: "{{ app_runtime_dir ~ '/image-compose.yml' if app_profile == 'image' else 'docker-compose.yaml' }}"
+app_compose_project_src: "{{ app_runtime_dir if app_profile == 'image' else app_base_dir }}"
 app_compose_project: "{{ project_name | lower }}"
+redis_sentinel_port: 26379
 
 # Deployment
-app_pull_images: true
 app_remove_orphans: true
 
 # Application health check

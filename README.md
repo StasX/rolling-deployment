@@ -1,6 +1,6 @@
 # RollingDeployment
 
-AWS infrastructure and deployment automation for [TheSchool](https://github.com/StasX/TheSchool), with separate MariaDB Galera and Redis/Sentinel tiers and a [Monitoring](https://github.com/StasX/Monitoring) stack.
+AWS infrastructure and rolling deployment automation for containerized applications, with separate MariaDB Galera and Redis/Sentinel tiers and a [Monitoring](https://github.com/StasX/Monitoring) stack.
 
 The project combines Terraform, Python (Boto3), Ansible, and Docker Compose to provision infrastructure, configure hosts, and deploy application releases incrementally.
 
@@ -10,7 +10,7 @@ One VPC spans two Availability Zones. Application, database, and Redis instances
 
 | Location | Component | Count | Purpose |
 | --- | --- | ---: | --- |
-| AZ A | Application EC2 | 3 | Run TheSchool behind the ALB |
+| AZ A | Application EC2 | 3 | Run the application behind the ALB |
 | AZ A | Database EC2 | 3 | Run a MariaDB Galera cluster |
 | AZ A | Redis EC2 | 3 | One Redis instance and one Sentinel container per host |
 | AZ B | Monitoring EC2 | 1 | Run Prometheus and Grafana |
@@ -92,7 +92,7 @@ An asynchronous MariaDB replica in AZ B is a possible future disaster-recovery e
 | `ansible/ansible.cfg` | Ansible connection and role configuration |
 | `ansible/playbooks/` | Setup, database, Redis, application, and monitoring playbooks |
 | `ansible/roles/docker/` | Docker Engine and Compose installation |
-| `ansible/roles/app/` | TheSchool checkout, environment, Compose deployment, and health checks |
+| `ansible/roles/app/` | Application checkout, environment, Compose deployment, and health checks |
 | `ansible/roles/database/` | EBS preparation, Galera configuration, and Compose deployment tasks |
 | `ansible/roles/redis/` | Redis/Sentinel initial configuration, persistence, and Compose deployment |
 | `ansible/roles/monitoring/` | Monitoring repository checkout and Compose deployment |
@@ -139,9 +139,8 @@ Create a private `deployment.json` in the repository root, or pass `--config pat
 
 ```json
 {
-  "app_key": "base64:REPLACE_WITH_A_LARAVEL_APP_KEY",
+  "app_repo_url": "https://example.com/team/my-app.git",
   "app_repo_version": "REPLACE_WITH_A_RELEASE_COMMIT_SHA",
-  "app_compose_file": "docker-compose.prod.yml",
   "database_image": "registry.example.com/galera:tested-release",
   "database_wsrep_provider": "/path/in/image/to/libgalera_smm.so",
   "database_root_password": "REPLACE",
@@ -161,7 +160,7 @@ Create a private `deployment.json` in the repository root, or pass `--config pat
 }
 ```
 
-Set `database_allow_format` to true only when provisioning the dedicated blank database volumes. The deployment locates those volumes by their Nitro EBS device IDs. The application release must contain a Compose file that uses the external database and Redis. Set `app_repo_url` or `monitoring_repo_url` when you use a different checkout. The monitoring Compose file must have a Prometheus service, named `prometheus` by default, using `/etc/prometheus/prometheus.yml`. Use `monitoring_prometheus_service` if the service name differs.
+Set `database_allow_format` to true only when provisioning the dedicated blank database volumes. The deployment locates those volumes by their Nitro EBS device IDs. The example uses the application's `docker-compose.yaml`. A monitoring checkout can be selected with `monitoring_repo_url`; its Compose file must have a service using `/etc/prometheus/prometheus.yml`. Use `monitoring_prometheus_service` if the service is named something other than `prometheus`.
 
 ## Local setup and execution
 
@@ -189,7 +188,7 @@ PowerShell entrypoint:
 
 The PowerShell entrypoint runs the Bash workflow in the default WSL distribution. Both entrypoints load `.env` as shell syntax, prepare tooling and SSH keys, and apply and deploy in the same Linux environment.
 
-For later releases, update `app_repo_version` and run the same command without `--initialize-database`.
+For later releases, update `app_image` for image deployments or `app_repo_version` for repository deployments. Run the same command without `--initialize-database`.
 
 For direct Python execution, after preparing the virtual environment and loading environment variables:
 
@@ -250,15 +249,61 @@ Host networking and private address announcements make discovered endpoints reac
 
 Redis uses AOF persistence with `appendfsync everysec` and a `noeviction` policy. Persistence and asynchronous replication do not guarantee zero data loss during failures. Local PING health checks establish responsiveness; final validation must check replica links, Sentinel agreement, and failover behavior.
 
-Laravel needs a Sentinel-aware connection implementation and all Sentinel endpoints plus the monitored primary name. A fixed `REDIS_HOST` alone will not follow a promoted primary.
+Applications receive the same Redis settings through either profile.
+
+| Environment variable | Value |
+| --- | --- |
+| `REDIS_SENTINEL_HOSTS` | All three private Sentinel IP addresses, comma-separated |
+| `REDIS_SENTINEL_PORT` | Sentinel port, defaulting to `26379` |
+| `REDIS_SENTINEL_MASTER` | Monitored primary name, defaulting to lowercase `<project-name>-redis` |
+| `REDIS_SENTINEL_PASSWORD` | Password for Sentinel discovery |
+| `REDIS_PASSWORD` | Password for the Redis primary |
+
+For an existing cluster, use the monitored name and port already in the persisted Sentinel configuration. Supply the three endpoints and the monitored name to the application's Sentinel client. Use the Sentinel password for discovery and the Redis password for the resulting primary connection.
+
+| Runtime | Sentinel client |
+| --- | --- |
+| Python | [redis-py `Sentinel.master_for()`](https://redis.io/docs/latest/develop/clients/redis-py/connect/) |
+| PHP | [Predis Sentinel replication](https://redis.io/docs/latest/develop/clients/php/connect/) |
+| JavaScript / Node.js | [ioredis Sentinel mode](https://github.com/redis/ioredis#sentinel) |
+| Java | [Jedis `RedisSentinelClient`](https://redis.io/docs/latest/develop/clients/jedis/connect/) |
+| C# / .NET | [StackExchange.Redis Sentinel mode](https://github.com/StackExchange/StackExchange.Redis/blob/main/docs/Configuration.md) |
 
 ## Application releases
 
-The application role checks out TheSchool, renders its environment file, starts Docker Compose services, and checks `/api/health`. The deployment playbook processes one application host at a time and stops subsequent batches on failure.
+The application role deploys a prebuilt image or checks out a repository and deploys its Compose services. The deployment playbook processes one application host at a time and stops subsequent batches on failure.
+
+For a prebuilt Docker image, add these settings to `deployment.json`. The image can use any language or framework.
+
+```json
+{
+  "app_image": "registry.example.com/team/my-app:1.2.3",
+  "app_container_port": 8080
+}
+```
+
+Setting `app_image` selects the image profile. RollingDeployment pulls the image, passes the shared environment to the container, and publishes its configured port on host port `80`. The process in the image must listen on `0.0.0.0` and return HTTP 200 from `/api/health`. For a private registry, the application hosts' Docker client needs pull access.
+
+To replace one application with another on the same stack, change `app_image` and redeploy. Keep `app_container_port` the same if both images use the same internal port. Both images receive the same MariaDB connection settings (`DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, and `DB_PASSWORD`) and the same Redis Sentinel settings listed above. During a rolling replacement, both versions must be compatible with the shared database schema and any sessions, cache entries, or queued jobs they share.
+
+With the `compose` profile, set `app_repo_url` and `app_repo_version`. The deployment uses `docker-compose.yaml` unless `app_compose_file` specifies a different filename. Each service that needs the deployment settings must import the generated file. The following is a service excerpt for an application that listens on container port `8080`.
+
+```yaml
+services:
+  web:
+    build: .
+    pull_policy: build
+    env_file:
+      - "${APP_RUNTIME_ENV_FILE:?RollingDeployment environment file is required}"
+    ports:
+      - "80:8080"
+```
+
+The infrastructure routes to host port `80` and checks `/api/health`. Expose that endpoint from the web service. Workers can use the same `env_file` in their own Compose services.
 
 Reliable rolling releases require immutable release selection, ALB deregistration and connection draining, target-health verification before proceeding, and tested rollback to the previous release. Local health checks alone do not establish zero-downtime deployment.
 
-Database schema changes need a separate migration strategy compatible with both old and new application versions. Sessions, cache, and queues use the shared Redis tier once Sentinel discovery is integrated. The production Compose file must exclude local MariaDB and standalone local Redis services.
+Database schema changes need a separate migration strategy compatible with both old and new application versions.
 
 ## IAM and backups
 
